@@ -1,0 +1,233 @@
+---
+title: "Practical Machine Learning Course Project"
+output: 
+html_document:
+  keep_md: yes
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# 1 Overview
+
+This report is prepared as part of the course project for the practical machine learning course, which is prepared using knitr functions in RStudio. The goal of this project is to predict the performance of participants exercise through prediction of the variable 'classe' in the training dataset. Several machine learning methods are compared and the best method is used to predict the test dataset. 
+
+# 2 Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3xsbS5bVX
+
+
+# 3 Data and Exploratory Analysis
+
+## 3.1 Dataset
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from http://groupware.les.inf.puc-rio.br/har. 
+
+Full source: (Thanks to authors for providing the data)
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. “Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human ’13)”. Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+## 3.2 R Packages
+We first setup the R packages that are necessary for the complete analysis.
+
+```{r, echo=FALSE}
+rm(list=ls())                # free up memory for the download of the data 
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(RColorBrewer)
+library(gbm)
+set.seed(36478)
+
+```
+
+## 3.3 Data Load and Cleaning
+
+The training and test datasets are downloaded using the provided URLs. The training dataset divided into two parts: 70% of the data belongs to training set, while 30% of the data belongs to the test set. The testing dataset remains unchanged. 
+
+
+```{r, echo=TRUE}
+# download the datasets
+train <- read.csv('train.csv')
+test  <- read.csv('test.csv')
+```
+
+
+```{r, echo=TRUE}
+# create a partition with the training dataset 
+trainPart  <- createDataPartition(train$classe, p=0.7, list=FALSE)
+trainTrainSet <- train[trainPart, ]
+trainTestSet  <- train[-trainPart, ]
+dim(trainTrainSet)
+```
+```{r, echo=TRUE}
+
+dim(trainTestSet)
+```
+
+Train dataset has 160 variables. There are variables with pleanty of 'NAs' and near zero variance, which have been removed below.
+
+```{r, echo=TRUE}
+# remove variables with near zero variance
+nearZeroVariance <- nearZeroVar(trainTrainSet)
+trainTrainSet <- trainTrainSet[, -nearZeroVariance]
+trainTestSet  <- trainTestSet[, -nearZeroVariance]
+dim(trainTrainSet)
+```
+```{r, echo=TRUE}
+dim(trainTestSet)
+```
+```{r, echo=TRUE}
+# remove variables with >95% NAs
+varNAs    <- sapply(trainTrainSet, function(x) mean(is.na(x))) > 0.95
+trainTrainSet <- trainTrainSet[, varNAs==FALSE]
+trainTestSet  <- trainTestSet[, varNAs==FALSE]
+dim(trainTrainSet)
+```
+
+```{r, echo=TRUE}
+dim(trainTestSet)
+```
+
+```{r, echo=TRUE}
+# removing the identification only variables (columns 1 to 5)
+trainTrainSet <- trainTrainSet[, -(1:5)]
+trainTestSet  <- trainTestSet[, -(1:5)]
+dim(trainTrainSet)
+```
+
+```{r, echo=TRUE}
+dim(trainTestSet)
+```
+
+We have 54 variables after removing variables with more than 95% NAs, near zero variance and identification only variables.
+
+## 3.4 Correlation analysis
+```{r, echo=TRUE}
+corMatrix <- cor(trainTrainSet[, -54])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+The dark colors indicate the variables are highly correlated in the figure given above.
+
+# 4 Prediction Model Building
+
+Three methods are used on train dataset and the method with highest accuracy is used to predict test dataset (30% of the traning dataset) and the project test dataset for quiz prediction. These methods are random forest, decision tree and generalized boosted model.  
+
+## 4.1 Random Forest Method
+
+```{r, echo=TRUE}
+# fit random forest
+set.seed(36478)
+trainControlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+fitRandForest <- train(classe ~ ., data=trainTrainSet, method="rf",
+                          trControl=trainControlRF)
+fitRandForest$finalModel
+```
+
+```{r, echo=TRUE}
+# prediction on Training Test dataset
+set.seed(36478)
+predictRF <- predict(fitRandForest, newdata=trainTestSet)
+#str(predictRF)
+#str(trainTestSet$classe)
+confMatRF <- confusionMatrix(predictRF, as.factor(trainTestSet$classe))
+confMatRF
+```
+
+
+```{r, echo=TRUE}
+# plot matrix results
+set.seed(36478)
+plot(confMatRF$table, col = confMatRF$byClass, 
+     main = paste("Accuracy of Random Forest =",
+                  round(confMatRF$overall['Accuracy'], 4)))
+```
+
+
+# 4.2 Decision Trees Method
+
+```{r, echo=TRUE}
+# fit decision trees
+set.seed(36478)
+fitDecisionTrees <- rpart(classe ~ ., data=trainTrainSet, method="class")
+fancyRpartPlot(fitDecisionTrees)
+```
+
+```{r, echo=TRUE}
+# prediction on training test dataset
+set.seed(36478)
+predictDecisionTrees <- predict(fitDecisionTrees, newdata=trainTestSet, type="class")
+confMatDecisionTrees <- confusionMatrix(predictDecisionTrees, as.factor(trainTestSet$classe))
+confMatDecisionTrees
+```
+
+```{r, echo=TRUE}
+# plot matrix results
+set.seed(36478)
+plot(confMatDecisionTrees$table, col = confMatDecisionTrees$byClass, 
+     main = paste("Accuracy of Decision Trees =",
+                  round(confMatDecisionTrees$overall['Accuracy'], 4)))
+```
+
+
+
+
+
+# 4.3 Generalized Boosted Method
+
+```{r, echo=TRUE}
+# generalized boosted model fit
+set.seed(36478)
+conGBM <- trainControl(method = "repeatedcv", number = 4, repeats = 1)
+fitGBM  <- train(classe ~ ., data=trainTrainSet, method = "gbm",
+                    trControl = conGBM, verbose = FALSE)
+fitGBM$finalModel
+```
+
+
+```{r, echo=TRUE}
+# prediction of training test dataset
+set.seed(36478)
+predGBM <- predict(fitGBM, newdata=trainTestSet)
+confMatGBM <- confusionMatrix(predGBM, as.factor(trainTestSet$classe))
+confMatGBM
+```
+
+
+```{r, echo=TRUE}
+# plot matrix results
+set.seed(36478)
+plot(confMatGBM$table, col = confMatGBM$byClass, 
+     main = paste("Accuracy of GBM =", round(confMatGBM$overall['Accuracy'], 4)))
+```
+
+
+# 5 Selection of the best method and prediction of test dataset
+
+The random forest method is selected to predict the 20 test quiz dataset as it has the highest accuracy compared to decision trees and generalized boosted methods. The results of the prediction are given below.
+
+```{r, echo=TRUE}
+# plot matrix results
+predictTEST <- predict(fitRandForest, newdata=test)
+predictTEST
+```
+
+
+
